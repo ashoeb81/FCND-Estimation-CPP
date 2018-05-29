@@ -164,7 +164,22 @@ VectorXf QuadEstimatorEKF::PredictState(VectorXf curState, float dt, V3F accel, 
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  // Update X
+  predictedState(0) += predictedState(3) * dt;
+  // Update Y
+  predictedState(1) += predictedState(4) * dt;
+  // Update Z
+  predictedState(2) += predictedState(5) * dt;
 
+  // Total acceleration in inertial frame;
+  V3F total_accel = attitude.Rotate_BtoI(accel) - V3F(0.0, 0.0, CONST_GRAVITY);
+
+  // Update Xdot
+  predictedState(3) += total_accel.x * dt;
+  // Update Ydot
+  predictedState(4) += total_accel.y * dt;
+  // Update Zdot
+  predictedState(5) += total_accel.z * dt;
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   return predictedState;
@@ -190,8 +205,13 @@ MatrixXf QuadEstimatorEKF::GetRbgPrime(float roll, float pitch, float yaw)
   //   that your calculations are reasonable
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  RbgPrime(0,0) = -cos(pitch)*sin(yaw);
+  RbgPrime(0,1) = -sin(roll)*sin(pitch)*sin(yaw) - cos(roll)*cos(yaw);
+  RbgPrime(0,2) = -cos(roll)*sin(pitch)*sin(yaw) + sin(roll)*cos(yaw);
 
-
+  RbgPrime(1,0) = cos(pitch)*cos(yaw);
+  RbgPrime(1,1) = sin(roll)*sin(pitch)*cos(yaw) - cos(roll)*sin(yaw);
+  RbgPrime(1,2) = cos(roll)*sin(pitch)*cos(yaw) + sin(roll)*sin(yaw);
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   return RbgPrime;
@@ -236,8 +256,20 @@ void QuadEstimatorEKF::Predict(float dt, V3F accel, V3F gyro)
   gPrime.setIdentity();
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  // Acceleration in inertial frame;
+  VectorXf accelVec(3);
+  accelVec << accel.x, accel.y, accel.z;
+  accelVec = RbgPrime * accelVec;
 
+  gPrime.row(0) << 1, 0, 0, dt, 0,  0,  0;
+  gPrime.row(1) << 0, 1, 0, 0,  dt, 0,  0;
+  gPrime.row(2) << 0, 0, 1, 0,  0,  dt, 0;
+  gPrime.row(3) << 0, 0, 0, 1,  0,  0,  accelVec(0)*dt;
+  gPrime.row(4) << 0, 0, 0, 0,  1,  0,  accelVec(1)*dt;
+  gPrime.row(5) << 0, 0, 0, 0,  0,  1,  accelVec(2)*dt;
+  gPrime.row(6) << 0, 0, 0, 0,  0,  0,  1;
 
+  ekfCov = gPrime * ekfCov * gPrime.transpose() + Q;
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   ekfState = newState;
@@ -261,7 +293,13 @@ void QuadEstimatorEKF::UpdateFromGPS(V3F pos, V3F vel)
   //  - The GPS measurement covariance is available in member variable R_GPS
   //  - this is a very simple update
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
-
+  hPrime(0,0) = 1;
+  hPrime(1,1) = 1;
+  hPrime(2,2) = 1;
+  hPrime(3,3) = 1;
+  hPrime(4,4) = 1;
+  hPrime(5,5) = 1;
+  zFromX = hPrime * ekfState;
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   Update(z, hPrime, R_GPS, zFromX);
@@ -282,8 +320,12 @@ void QuadEstimatorEKF::UpdateFromMag(float magYaw)
   //    (you don't want to update your yaw the long way around the circle)
   //  - The magnetomer measurement covariance is available in member variable R_Mag
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  hPrime(0,6) = 1;
+  zFromX = hPrime * ekfState;
 
-
+  VectorXf yaw_error = z - zFromX;
+  if (yaw_error(0) > F_PI) z(0) -= 2.f*F_PI;
+  if (yaw_error(0) < -F_PI) z(0) += 2.f*F_PI;
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   Update(z, hPrime, R_Mag, zFromX);
